@@ -1,0 +1,4 @@
+{$DASHBOARD_DOMAIN} {
+	encode gzip
+	reverse_proxy dashboard:8000
+}

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xanh SM Integration</title>
+<style>
+:root{--g:#00A76F;--bg:#f4f6f8;--card:#fff;--tx:#1c252e;--mu:#637381;--bd:#e5e8eb;--red:#d32f2f;--amb:#ed6c02}
+@media (prefers-color-scheme:dark){:root{--bg:#141a21;--card:#1c252e;--tx:#f4f6f8;--mu:#919eab;--bd:#2f3a45}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx)}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--g);color:#fff}
+header h1{font-size:18px;margin:0}header small{opacity:.85}
+main{max-width:1280px;margin:0 auto;padding:20px}
+.grid{display:grid;gap:16px}.cards{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}.two{grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+.card .k{color:var(--mu);font-size:12px;text-transform:uppercase;letter-spacing:.04em}.card .v{font-size:24px;font-weight:700;margin-top:4px}
+.sub{color:var(--mu);font-size:12px}.badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#e8f5e9;color:#1b5e20}
+.badge.bad{background:#fdecea;color:var(--red)}.badge.warn{background:#fff4e5;color:var(--amb)}
+h2{font-size:15px;margin:0 0 12px}.chart{position:relative;height:240px}
+.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;white-space:nowrap}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--bd)}th{color:var(--mu);font-size:12px;font-weight:600}
+.tools{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+input,select{padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx)}
+</style>
+</head>
+<body>
+<header><h1>Xanh SM Integration</h1><small id="upd">Đang tải...</small></header>
+<main class="grid">
+  <section class="grid cards" id="cards"></section>
+  <section class="grid two">
+    <div class="card"><h2>Chuyến đi 7 ngày gần nhất</h2><div class="chart"><canvas id="c1"></canvas></div></div>
+    <div class="card"><h2>Độ trễ API (ms)</h2><div class="chart"><canvas id="c2"></canvas></div></div>
+  </section>
+  <section class="card">
+    <h2>Chuyến đi</h2>
+    <div class="tools">
+      <input id="q" placeholder="Tìm mã chuyến, tài xế, biển số">
+      <select id="st"><option value="">Tất cả trạng thái</option><option value="in_progress">Đang chạy</option><option value="completed">Hoàn thành</option><option value="cancelled">Đã huỷ</option></select>
+    </div>
+    <div class="wrap"><table><thead><tr><th>Mã chuyến</th><th>Tài xế</th><th>Biển số</th><th>Điểm đón</th><th>Điểm đến</th><th>Km</th><th>Cước (VND)</th><th>Trạng thái</th><th>Bắt đầu</th></tr></thead><tbody id="trips"></tbody></table></div>
+  </section>
+  <section class="card">
+    <h2>Lịch sử đồng bộ</h2>
+    <div class="wrap"><table><thead><tr><th>#</th><th>Bắt đầu</th><th>Kết quả</th><th>Nhận</th><th>Mới</th><th>Cập nhật</th><th>Không đổi</th><th>Bỏ qua</th><th>Lỗi</th></tr></thead><tbody id="runs"></tbody></table></div>
+  </section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const nf=n=>new Intl.NumberFormat('vi-VN').format(n??0);
+const dt=v=>v?new Date(v).toLocaleString('vi-VN'):'-';
+const esc=s=>String(s??'-').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ST={in_progress:['Đang chạy','warn'],completed:['Hoàn thành',''],cancelled:['Đã huỷ','bad'],success:['Thành công',''],failed:['Thất bại','bad'],running:['Đang chạy','warn']};
+const badge=s=>{const [t,c]=ST[s]||[s,'warn'];return `<span class="badge ${c}">${esc(t)}</span>`};
+async function j(u){const r=await fetch(u);if(!r.ok)throw new Error(u+' '+r.status);return r.json()}
+let c1,c2;
+function chart(ref,el,cfg){if(ref)ref.destroy();return new Chart(document.getElementById(el),cfg)}
+async function load(){
+  const [o,runs,health]=await Promise.all([j('/api/overview'),j('/api/runs'),j('/api/health')]);
+  const t=o.totals,h=o.health,u=o.uptime;
+  const up=u.n>0?(u.ok_n/u.n*100).toFixed(1)+'%':'-';
+  const apiB=h?(h.ok?'<span class="badge">Hoạt động</span>':'<span class="badge bad">Lỗi</span>'):'<span class="badge warn">Chưa có dữ liệu</span>';
+  document.getElementById('cards').innerHTML=[
+    ['Tổng chuyến',nf(t.total),`${nf(t.today)} hôm nay`],
+    ['Hoàn thành',nf(t.completed),`${nf(t.cancelled)} huỷ · ${nf(t.in_progress)} đang chạy`],
+    ['Doanh thu (VND)',nf(t.revenue),'Chuyến hoàn thành'],
+    ['Trạng thái API',apiB,`Uptime 24h: ${up} · TB ${u.avg_ms??'-'} ms`],
+    ['Đồng bộ gần nhất',o.last_run?badge(o.last_run.status):'-',`Thành công lần cuối: ${dt(o.last_success)}`]
+  ].map(([k,v,s])=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="sub">${s}</div></div>`).join('');
+  c1=chart(c1,'c1',{type:'bar',data:{labels:o.daily.map(d=>d.day),datasets:[{label:'Số chuyến',data:o.daily.map(d=>d.trips),backgroundColor:'#00A76F'}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}}}});
+  const hs=[...health].reverse();
+  c2=chart(c2,'c2',{type:'line',data:{labels:hs.map(x=>new Date(x.checked_at).toLocaleTimeString('vi-VN')),datasets:[{label:'ms',data:hs.map(x=>x.latency_ms),borderColor:'#00A76F',pointRadius:0,tension:.3}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}}}});
+  document.getElementById('runs').innerHTML=runs.map(r=>`<tr><td>${r.id}</td><td>${dt(r.started_at)}</td><td>${badge(r.status)}</td><td>${r.fetched}</td><td>${r.inserted}</td><td>${r.updated}</td><td>${r.unchanged}</td><td>${r.skipped}</td><td>${esc(r.error)}</td></tr>`).join('');
+  await loadTrips();
+  document.getElementById('upd').textContent='Cập nhật '+new Date().toLocaleTimeString('vi-VN');
+}
+async function loadTrips(){
+  const p=new URLSearchParams({limit:30});
+  const q=document.getElementById('q').value.trim(),s=document.getElementById('st').value;
+  if(q)p.set('q',q);if(s)p.set('status',s);
+  const d=await j('/api/trips?'+p);
+  document.getElementById('trips').innerHTML=d.map(x=>`<tr><td>${esc(x.external_id)}</td><td>${esc(x.driver_name)}</td><td>${esc(x.vehicle_plate)}</td><td>${esc(x.pickup_address)}</td><td>${esc(x.dropoff_address)}</td><td>${esc(x.distance_km)}</td><td>${nf(x.fare_vnd)}</td><td>${badge(x.status)}</td><td>${dt(x.started_at)}</td></tr>`).join('')||'<tr><td colspan="9">Chưa có dữ liệu</td></tr>';
+}
+document.getElementById('q').addEventListener('input',()=>{clearTimeout(window._t);window._t=setTimeout(loadTrips,350)});
+document.getElementById('st').addEventListener('change',loadTrips);
+load().catch(console.error);setInterval(()=>load().catch(console.error),15000);
+</script>
+</body>
+</html>

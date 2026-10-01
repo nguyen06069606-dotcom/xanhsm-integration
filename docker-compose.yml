@@ -1,0 +1,84 @@
+x-app: &app
+  build: ./app
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  fake-api:
+    profiles: ["fake"]
+    build: ./fake_api
+    restart: unless-stopped
+    environment:
+      FAKE_CLIENT_ID: ${API_CLIENT_ID:-demo-client}
+      FAKE_CLIENT_SECRET: ${API_CLIENT_SECRET:-demo-secret}
+      FAKE_TICK_SECONDS: ${FAKE_TICK_SECONDS:-3}
+      FAKE_ERROR_RATE: ${FAKE_ERROR_RATE:-0}
+    logging: *logging
+
+  worker:
+    <<: *app
+    command: python worker.py
+
+  monitor:
+    <<: *app
+    command: python monitor.py
+
+  dashboard:
+    <<: *app
+    command: uvicorn dashboard:app --host 0.0.0.0 --port 8000 --no-access-log
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:8088:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    profiles: ["proxy"]
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DASHBOARD_DOMAIN: ${DASHBOARD_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - dashboard
+    logging: *logging
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
